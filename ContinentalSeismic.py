@@ -151,7 +151,7 @@ def main():
     #guidId = 'aaaaaaaaa-aaaaaaa'
     #result = process(fileSgy, isAttribute, attributeName, pathProject, nameFileHdf5, guidId)
 
-    print(result)
+    #print(result)
     print("***PROCESSO FINALIZADO*****!")
     print("***PROCESSO FINALIZADO*****!")
     
