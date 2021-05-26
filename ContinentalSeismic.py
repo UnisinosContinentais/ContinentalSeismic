@@ -69,11 +69,13 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
         existsSeismicDataset = seismicGroup.get("seismic")
         if existsSeismicDataset is None:
             seismicDS = seismicGroup.create_dataset(u'seismic', data=resultData)
+            seismicDS.attrs["minX"] = np.amin(resultData[:]['SourceX'])
+            seismicDS.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
+            seismicDS.attrs["minY"] = np.amin(resultData[:]['SourceY'])
+            seismicDS.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         else:
             seismicDS = seismicGroup.get("seismic")
             seismicDS = resultData;
-         
-
 
 def createHdf5(fileHdf5):
     #
