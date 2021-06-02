@@ -17,7 +17,7 @@ try:
 except NameError:
     pass
     
-def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData):
+def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData):
     #
     timestamp = datetime.today().strftime('%Y-%m-%dT%H:%M:%S')
     
@@ -46,6 +46,7 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
         idAttributeGroup.attrs[u'attributeName'] = attributeName
         idAttributeGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         idAttributeGroup.attrs[u'ldmfile'] = ''
+        idAttributeGroup.attrs[u'colormap'] = colorMap
         idAttributeGroup.attrs["minX"] = np.amin(resultData[:]['SourceX'])
         idAttributeGroup.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
         idAttributeGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
@@ -72,6 +73,7 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
         seismicGroup.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
         seismicGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
         seismicGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
+        seismicGroup.attrs[u'colormap'] = colorMap
         
         existsSeismicDataset = seismicGroup.get("seismic")
         if existsSeismicDataset is None:
@@ -116,7 +118,7 @@ def loadDatasgy(fileSgy):
 def process2(fileSgy, isAttribute, attributeName, fileHdf5):
     return True   
     
-def process(fileSgy, isAttribute, attributeName, pathProject, nameFileHdf5, guidId):
+def process(fileSgy, isAttribute, attributeName, colorMap, pathProject, nameFileHdf5, guidId):
     print("***process*****!")
     resultprocess = False
  
@@ -130,10 +132,10 @@ def process(fileSgy, isAttribute, attributeName, pathProject, nameFileHdf5, guid
     resultData = loadDatasgy(fileSgy)
     
     if os.path.isfile(fileHdf5):
-        updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData);
+        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData);
     else:
         createHdf5(fileHdf5)
-        updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData);
+        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData);
     
     
     resultprocess =  True
