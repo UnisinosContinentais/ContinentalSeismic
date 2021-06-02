@@ -33,7 +33,6 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
     fhdf5.attrs[u'HDF5_Version']     = six.u(h5py.version.hdf5_version)
     fhdf5.attrs[u'h5py_version']     = six.u(h5py.version.version)
     
-    print('aaa')
     if(isAttribute):
         # create the attributes group
         group = fhdf5["attributes"]
@@ -47,12 +46,16 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
         idAttributeGroup.attrs[u'attributeName'] = attributeName
         idAttributeGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         idAttributeGroup.attrs[u'ldmfile'] = ''
+        idAttributeGroup.attrs["minX"] = np.amin(resultData[:]['SourceX'])
+        idAttributeGroup.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
+        idAttributeGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
+        idAttributeGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         
 
         # Create  Dataset Atrubute
         exists = fhdf5.get("headers1")
         if exists is None:
-            attributeseismicDS = idAttributeGroup.create_dataset(u'attributeseismic', data=resultData)
+            attributeseismicDS = idAttributeGroup.create_dataset(u'trace_header', data=resultData)
             #ilineDS = idAttributeGroup.create_dataset(u'iline', data=datailine)
     else:
         #se nao existe o grupo cria
@@ -65,14 +68,14 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, segyNameProject, resultData
         seismicGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         seismicGroup.attrs[u'ldmfile'] = ''
         seismicGroup.attrs[u'id'] = segyNameProject
+        seismicGroup.attrs["minX"] = np.amin(resultData[:]['SourceX'])
+        seismicGroup.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
+        seismicGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
+        seismicGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         
         existsSeismicDataset = seismicGroup.get("seismic")
         if existsSeismicDataset is None:
-            seismicDS = seismicGroup.create_dataset(u'seismic', data=resultData)
-            seismicDS.attrs["minX"] = np.amin(resultData[:]['SourceX'])
-            seismicDS.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
-            seismicDS.attrs["minY"] = np.amin(resultData[:]['SourceY'])
-            seismicDS.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
+            seismicDS = seismicGroup.create_dataset(u'trace_header', data=resultData)
         else:
             seismicDS = seismicGroup.get("seismic")
             seismicDS = resultData;
