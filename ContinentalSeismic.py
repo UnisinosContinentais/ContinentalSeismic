@@ -19,8 +19,7 @@ try:
 except NameError:
     pass
 
-
-def update_geometry_parameters(attrs, result_data):
+def update_geometry_parameters(attrs, interval, result_data):
     attrs["minX"] = np.amin(result_data[:]['SourceX'])
     attrs["maxX"] = np.amax(result_data[:]['SourceX'])
     attrs["minY"] = np.amin(result_data[:]['SourceY'])
@@ -40,12 +39,13 @@ def update_geometry_parameters(attrs, result_data):
     inline_end_crossline_end_x = result_data['SourceX'][index_inline_end_crossline_end]
     inline_end_crossline_end_y = result_data['SourceY'][index_inline_end_crossline_end]
 
+    attrs["interval"] = interval
     attrs["traceSampleCount"] = result_data['TRACE_SAMPLE_COUNT'][1]
-    attrs["inlineCount"] = index_inline_end + 1
-    attrs["crosslineCount"] = len(result_data) / attrs["size_v"]
+    attrs["inlineCount"] = index_inline_end
+    attrs["crosslineCount"] = len(result_data) / attrs["inlineCount"]
     attrs["originX"] = origin_x
     attrs["originY"] = origin_y
-    attrs["originZ"] = origin_y
+    attrs["originZ"] = origin_z
     attrs["inlineEndX"] = inline_end_x
     attrs["inlineEndY"] = inline_end_y
     attrs["crosslineEndX"] = crossline_end_x
@@ -53,7 +53,7 @@ def update_geometry_parameters(attrs, result_data):
     attrs["inlineEndCrosslineEndX"] = inline_end_crossline_end_x
     attrs["inlineEndCrosslineEndY"] = inline_end_crossline_end_y
 
-def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData):
+def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, interval, resultData):
     #
     timestamp = datetime.today().strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -82,7 +82,7 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         idAttributeGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         idAttributeGroup.attrs[u'ldmfile'] = ''
         idAttributeGroup.attrs[u'colormap'] = colorMap
-        update_geometry_parameters(idAttributeGroup.attrs, resultData)
+        update_geometry_parameters(idAttributeGroup.attrs, interval, resultData)
 
         # Create  Dataset Atrubute
         exists = fhdf5.get("headers1")
@@ -105,7 +105,7 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         seismicGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
         seismicGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         seismicGroup.attrs[u'colormap'] = colorMap
-        update_geometry_parameters(seismicGroup.attrs, resultData)
+        update_geometry_parameters(seismicGroup.attrs, interval, resultData)
 
         existsSeismicDataset = seismicGroup.get("seismic")
         if existsSeismicDataset is None:
@@ -142,34 +142,35 @@ def loadDatasgy(fileSgy):
         trace_headers = pd.DataFrame(index=range(1, f.tracecount + 1),
                                      columns=header_keys.keys())
 
+        interval = f.bin[segyio.BinField.Interval]
         for k, v in header_keys.items():
             trace_headers[k] = f.attributes(v)[:]
 
     f.close()
-    return trace_headers
+    return interval, trace_headers
 
 def process(fileSgy, isAttribute, attributeName, colorMap, pathProject, nameFileHdf5, guidId):
     print("***process*****!")
-    resultprocess = False
+    result_process = False
 
     # copia o segy original para pasta do projeto com o novo ID
-    fileHdf5 = pathProject + '\\' + nameFileHdf5
-    segyNameProject = guidId
-    pathNewSegy = pathProject + '\\seismic\\' + segyNameProject + '.sgy'
-    shutil.copy(fileSgy, pathNewSegy)
+    file_hdf5 = pathProject + '\\' + nameFileHdf5
+    segy_name_project = guidId
+    path_new_segy = pathProject + '\\seismic\\' + segy_name_project + '.sgy'
+    shutil.copy(fileSgy, path_new_segy)
 
     # Le o arquivo segy e salva o HDF5
-    resultData = loadDatasgy(fileSgy)
+    interval, result_data = loadDatasgy(fileSgy)
 
-    if os.path.isfile(fileHdf5):
-        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData)
+    if os.path.isfile(file_hdf5):
+        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, result_data)
     else:
-        createHdf5(fileHdf5)
-        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData)
+        createHdf5(file_hdf5)
+        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, result_data)
 
-    resultprocess = True
+    result_process = True
 
-    return resultprocess
+    return result_process
 
 
 def main():
