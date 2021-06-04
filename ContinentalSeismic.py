@@ -4,36 +4,71 @@ import numpy as np
 import segyio
 import pylops
 import matplotlib.pyplot as plt
-import h5py    
+import h5py
 import six
 import uuid
 import pandas as pd
 import shutil
+import math
 from scipy.interpolate import RegularGridInterpolator
 from shutil import copyfile
 from datetime import datetime
+
 try:
     sys.path.append(basePath)
 except NameError:
     pass
-    
+
+
+def update_geometry_parameters(attrs, result_data):
+    attrs["minX"] = np.amin(result_data[:]['SourceX'])
+    attrs["maxX"] = np.amax(result_data[:]['SourceX'])
+    attrs["minY"] = np.amin(result_data[:]['SourceY'])
+    attrs["maxY"] = np.amax(result_data[:]['SourceY'])
+
+    index_inline_end = np.amax(result_data[:]['CDP']) - np.amin(result_data[:]['CDP']) + 1
+    index_inline_end_crossline_end = len(result_data)
+    index_crossline_end = index_inline_end_crossline_end - index_inline_end + 1
+
+    origin_x = result_data['SourceX'][1]
+    origin_y = result_data['SourceY'][1]
+    origin_z = result_data['SourceSurfaceElevation'][1]
+    inline_end_x = result_data['SourceX'][index_inline_end]
+    inline_end_y = result_data['SourceY'][index_inline_end]
+    crossline_end_x = result_data['SourceX'][index_crossline_end]
+    crossline_end_y = result_data['SourceY'][index_crossline_end]
+    inline_end_crossline_end_x = result_data['SourceX'][index_inline_end_crossline_end]
+    inline_end_crossline_end_y = result_data['SourceY'][index_inline_end_crossline_end]
+
+    attrs["traceSampleCount"] = result_data['TRACE_SAMPLE_COUNT'][1]
+    attrs["inlineCount"] = index_inline_end + 1
+    attrs["crosslineCount"] = len(result_data) / attrs["size_v"]
+    attrs["originX"] = origin_x
+    attrs["originY"] = origin_y
+    attrs["originZ"] = origin_y
+    attrs["inlineEndX"] = inline_end_x
+    attrs["inlineEndY"] = inline_end_y
+    attrs["crosslineEndX"] = crossline_end_x
+    attrs["crosslineEndY"] = crossline_end_y
+    attrs["inlineEndCrosslineEndX"] = inline_end_crossline_end_x
+    attrs["inlineEndCrosslineEndY"] = inline_end_crossline_end_y
+
 def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData):
     #
     timestamp = datetime.today().strftime('%Y-%m-%dT%H:%M:%S')
-    
-    
+
     # create the HDF5 NeXus file
     fhdf5 = h5py.File(fileHdf5, "r+")
     # give the HDF5 root some more attributes
-    fhdf5.attrs[u'file_name']        = fileHdf5
-    fhdf5.attrs[u'file_time']        = timestamp
-    fhdf5.attrs[u'instrument']       = u'APS USAXS at 32ID-B'
-    fhdf5.attrs[u'creator']          = u'ContinentalSeismic.py'
-    fhdf5.attrs[u'NeXus_version']    = u'4.3.0'
-    fhdf5.attrs[u'HDF5_Version']     = six.u(h5py.version.hdf5_version)
-    fhdf5.attrs[u'h5py_version']     = six.u(h5py.version.version)
-    
-    if(isAttribute):
+    fhdf5.attrs[u'file_name'] = fileHdf5
+    fhdf5.attrs[u'file_time'] = timestamp
+    fhdf5.attrs[u'instrument'] = u'APS USAXS at 32ID-B'
+    fhdf5.attrs[u'creator'] = u'ContinentalSeismic.py'
+    fhdf5.attrs[u'NeXus_version'] = u'4.3.0'
+    fhdf5.attrs[u'HDF5_Version'] = six.u(h5py.version.hdf5_version)
+    fhdf5.attrs[u'h5py_version'] = six.u(h5py.version.version)
+
+    if (isAttribute):
         # create the attributes group
         group = fhdf5["attributes"]
         if group:
@@ -47,25 +82,21 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         idAttributeGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         idAttributeGroup.attrs[u'ldmfile'] = ''
         idAttributeGroup.attrs[u'colormap'] = colorMap
-        idAttributeGroup.attrs["minX"] = np.amin(resultData[:]['SourceX'])
-        idAttributeGroup.attrs["maxX"] = np.amax(resultData[:]['SourceX'])
-        idAttributeGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
-        idAttributeGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
-        
+        update_geometry_parameters(idAttributeGroup.attrs, resultData)
 
         # Create  Dataset Atrubute
         exists = fhdf5.get("headers1")
         if exists is None:
             attributeseismicDS = idAttributeGroup.create_dataset(u'trace_header', data=resultData)
-            #ilineDS = idAttributeGroup.create_dataset(u'iline', data=datailine)
+            # ilineDS = idAttributeGroup.create_dataset(u'iline', data=datailine)
     else:
-        #se nao existe o grupo cria
+        # se nao existe o grupo cria
         existsSeismicGroup = fhdf5.get("seismic")
         if existsSeismicGroup is None:
             seismicGroup = fhdf5.create_group("seismic")
         else:
             seismicGroup = fhdf5["seismic"]
-            
+
         seismicGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         seismicGroup.attrs[u'ldmfile'] = ''
         seismicGroup.attrs[u'id'] = segyNameProject
@@ -74,91 +105,88 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         seismicGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
         seismicGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         seismicGroup.attrs[u'colormap'] = colorMap
-        
+        update_geometry_parameters(seismicGroup.attrs, resultData)
+
         existsSeismicDataset = seismicGroup.get("seismic")
         if existsSeismicDataset is None:
             seismicDS = seismicGroup.create_dataset(u'trace_header', data=resultData)
         else:
             seismicDS = seismicGroup.get("seismic")
-            seismicDS = resultData;
+            seismicDS = resultData
+
 
 def createHdf5(fileHdf5):
     #
     timestamp = u"2010-10-18T17:17:04-0500"
-    
+
     # create the HDF5 NeXus file
     fhdf5 = h5py.File(fileHdf5, "w")
     # give the HDF5 root some more attributes
-    fhdf5.attrs[u'file_name']        = fileHdf5
-    fhdf5.attrs[u'file_time']        = timestamp
-    fhdf5.attrs[u'instrument']       = u'APS USAXS at 32ID-B'
-    fhdf5.attrs[u'creator']          = u'ContinentalSeismic.py'
-    fhdf5.attrs[u'NeXus_version']    = u'4.3.0'
-    fhdf5.attrs[u'HDF5_Version']     = six.u(h5py.version.hdf5_version)
-    fhdf5.attrs[u'h5py_version']     = six.u(h5py.version.version)
+    fhdf5.attrs[u'file_name'] = fileHdf5
+    fhdf5.attrs[u'file_time'] = timestamp
+    fhdf5.attrs[u'instrument'] = u'APS USAXS at 32ID-B'
+    fhdf5.attrs[u'creator'] = u'ContinentalSeismic.py'
+    fhdf5.attrs[u'NeXus_version'] = u'4.3.0'
+    fhdf5.attrs[u'HDF5_Version'] = six.u(h5py.version.hdf5_version)
+    fhdf5.attrs[u'h5py_version'] = six.u(h5py.version.version)
 
     # create the attributes group
-    attributes = fhdf5.create_group(u'attributes')
-    seismicGroup = fhdf5.create_group(u'seismic')
+    fhdf5.create_group(u'attributes')
+    fhdf5.create_group(u'seismic')
     return True
+
 
 def loadDatasgy(fileSgy):
     with segyio.open(fileSgy, ignore_geometry=True) as f:
-        
-        header_keys = segyio.tracefield.keys    
-        trace_headers = pd.DataFrame(index=range(1, f.tracecount+1),
+        header_keys = segyio.tracefield.keys
+        trace_headers = pd.DataFrame(index=range(1, f.tracecount + 1),
                                      columns=header_keys.keys())
-       
+
         for k, v in header_keys.items():
             trace_headers[k] = f.attributes(v)[:]
-    
+
     f.close()
     return trace_headers
-    
-def process2(fileSgy, isAttribute, attributeName, fileHdf5):
-    return True   
-    
+
 def process(fileSgy, isAttribute, attributeName, colorMap, pathProject, nameFileHdf5, guidId):
     print("***process*****!")
     resultprocess = False
- 
-    #copia o segy original para pasta do projeto com o novo ID
-    fileHdf5 = pathProject + '\\'+ nameFileHdf5
+
+    # copia o segy original para pasta do projeto com o novo ID
+    fileHdf5 = pathProject + '\\' + nameFileHdf5
     segyNameProject = guidId
     pathNewSegy = pathProject + '\\seismic\\' + segyNameProject + '.sgy'
     shutil.copy(fileSgy, pathNewSegy)
-    
-    #Le o arquivo segy e salva o HDF5
+
+    # Le o arquivo segy e salva o HDF5
     resultData = loadDatasgy(fileSgy)
-    
+
     if os.path.isfile(fileHdf5):
-        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData);
+        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData)
     else:
         createHdf5(fileHdf5)
-        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData);
-    
-    
-    resultprocess =  True
-  
+        updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, resultData)
+
+    resultprocess = True
 
     return resultprocess
-    
-   
+
+
 def main():
-    print("***INICIANDO O PROCESSO*****!")
+    """print("***INICIANDO O PROCESSO*****!")
     print("***INICIANDO O PROCESSO*****!")
 
-    #fileSgy = 'C:/Git/ContinentalSeismic/continentalseismic/data_test/long.sgy'    
-    #isAttribute = True
-    #attributeName = u"aaaaa"
-    #pathProject = u"C:/Users/cristianheylmann/Desktop/teste_projetos/teste1/teste1_continentalcarbonate"
-    #nameFileHdf5 = u"continental_seismic.hdf5"
-    #guidId = 'aaaaaaaaa-aaaaaaa'
-    #result = process(fileSgy, isAttribute, attributeName, pathProject, nameFileHdf5, guidId)
+    fileSgy = 'D:/Arquivos/SyntheticSeismicForStratBR/output_lithology.sgy'
+    isAttribute = False
+    attributeName = u"aaaaa"
+    pathProject = u"D:/Arquivos/Sapinhoa_100k/Sapinhoa_100k/Sapinhoa_100k_continentalcarbonate"
+    nameFileHdf5 = u"continental_seismic.hdf5"
+    guidId = 'f82d363d-24a6-48ea-981b-56334f26b6b4'
+    result = process(fileSgy, isAttribute, attributeName, "", pathProject, nameFileHdf5, guidId)
 
-    #print(result)
+    # print(result)
     print("***PROCESSO FINALIZADO*****!")
-    print("***PROCESSO FINALIZADO*****!")
-    
+    print("***PROCESSO FINALIZADO*****!")"""
+
 if __name__ == "__main__":
     main()
