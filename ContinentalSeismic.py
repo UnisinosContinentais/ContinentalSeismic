@@ -14,7 +14,7 @@ from scipy.interpolate import RegularGridInterpolator
 from shutil import copyfile
 from datetime import datetime
 import threading
-import psutil
+import concurrent.futures
 
 try:
     sys.path.append(basePath)
@@ -22,7 +22,7 @@ except NameError:
     pass
 
 
-def update_geometry_parameters(attrs, interval, result_data):
+def update_geometry_parameters(attrs, interval, trace_sample_count, result_data):
     attrs["minX"] = np.amin(result_data[:]['SourceX'])
     attrs["maxX"] = np.amax(result_data[:]['SourceX'])
     attrs["minY"] = np.amin(result_data[:]['SourceY'])
@@ -34,7 +34,7 @@ def update_geometry_parameters(attrs, interval, result_data):
 
     origin_x = result_data['SourceX'][1]
     origin_y = result_data['SourceY'][1]
-    origin_z = result_data['SourceSurfaceElevation'][1]
+    origin_z = result_data['DelayRecordingTime'][1]
     inline_end_x = result_data['SourceX'][index_inline_end]
     inline_end_y = result_data['SourceY'][index_inline_end]
     crossline_end_x = result_data['SourceX'][index_crossline_end]
@@ -43,7 +43,7 @@ def update_geometry_parameters(attrs, interval, result_data):
     inline_end_crossline_end_y = result_data['SourceY'][index_inline_end_crossline_end]
 
     attrs["interval"] = interval
-    attrs["traceSampleCount"] = result_data['TRACE_SAMPLE_COUNT'][1]
+    attrs["traceSampleCount"] = trace_sample_count
     attrs["inlineCount"] = index_inline_end
     attrs["crosslineCount"] = len(result_data) / attrs["inlineCount"]
     attrs["originX"] = origin_x
@@ -57,7 +57,7 @@ def update_geometry_parameters(attrs, interval, result_data):
     attrs["inlineEndCrosslineEndY"] = inline_end_crossline_end_y
 
 
-def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, interval, resultData):
+def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, interval, trace_sample_count, resultData):
     #
     timestamp = datetime.today().strftime('%Y-%m-%dT%H:%M:%S')
 
@@ -86,7 +86,7 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         idAttributeGroup.attrs[u'segyfile'] = segyNameProject + '.sgy'
         idAttributeGroup.attrs[u'ldmfile'] = ''
         idAttributeGroup.attrs[u'colormap'] = colorMap
-        update_geometry_parameters(idAttributeGroup.attrs, interval, resultData)
+        update_geometry_parameters(idAttributeGroup.attrs, interval, trace_sample_count, resultData)
 
         # Create  Dataset Atrubute
         exists = fhdf5.get("headers1")
@@ -109,14 +109,13 @@ def updateHdf5(fileHdf5, isAttribute, attributeName, colorMap, segyNameProject, 
         seismicGroup.attrs["minY"] = np.amin(resultData[:]['SourceY'])
         seismicGroup.attrs["maxY"] = np.amax(resultData[:]['SourceY'])
         seismicGroup.attrs[u'colormap'] = colorMap
-        update_geometry_parameters(seismicGroup.attrs, interval, resultData)
+        update_geometry_parameters(seismicGroup.attrs, interval, trace_sample_count, resultData)
 
-        existsSeismicDataset = seismicGroup.get("seismic")
-        if existsSeismicDataset is None:
-            seismicDS = seismicGroup.create_dataset(u'trace_header', data=resultData)
+        exists_seismic_dataset = seismicGroup.get("seismic")
+        if exists_seismic_dataset is None:
+            seismicGroup.create_dataset(u'trace_header', data=resultData)
         else:
-            seismicDS = seismicGroup.get("seismic")
-            seismicDS = resultData
+            seismicGroup.get("seismic")
 
 
 def createHdf5(fileHdf5):
@@ -140,85 +139,70 @@ def createHdf5(fileHdf5):
     return True
 
 
-def load_data_segy_trace_group(attributes, index_trace_list, results, index_result):
-    trace_headers = []
-    for i in range(len(index_trace_list)):
-        trace_headers.append(attributes(index_trace_list[i])[:])
-
-    results[index_result] = trace_headers
-
-
-def load_data_segy_trace(attributes, traces, index_attribute, index_trace):
-    traces[index_attribute] = attributes(index_trace)[:]
-
-
 def load_data_segy(file_segy):
-    with segyio.open(file_segy, ignore_geometry=True) as f:
-        header_keys = segyio.tracefield.keys
-        trace_headers = pd.DataFrame(index=range(1, f.tracecount + 1),
-                                     columns=header_keys.keys())
+    print("BEGIN ContinentalSeismic::load_data_segy - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-        interval = f.bin[segyio.BinField.Interval]
+    header_keys_filter = ['SourceX', 'SourceY', 'LagTimeA', 'DelayRecordingTime', 'CDP']
 
-        for index_attribute, index_trace in header_keys.items():
-            traces[index_attribute] = attributes(index_trace)[:]
+    segy = segyio.open(file_segy, ignore_geometry=True)
+    header_keys = segyio.tracefield.keys
+    trace_headers = pd.DataFrame(index=range(1, segy.tracecount + 1), columns=header_keys.keys(), dtype=int).fillna(0)
 
-    f.close()
-    return interval, trace_headers
+    interval = segy.bin[segyio.BinField.Interval]
+    trace_sample_count = segy.bin[segyio.BinField.Samples]
+
+    for name_attribute in header_keys_filter:
+        trace_headers[name_attribute] = segy.attributes(header_keys[name_attribute])[:]
+
+    segy.close()
+    print("END ContinentalSeismic::load_data_segy - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    return interval, trace_sample_count, trace_headers
+
+
+def load_data_segy_multithread_part(segy, index_attribute, name_attribute):
+    print("BEGIN ContinentalSeismic::load_data_segy_multithread_part - " + name_attribute + " - " +
+          datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    result = list(segy.attributes(index_attribute)[:]) * 1
+    print("END ContinentalSeismic::load_data_segy_multithread_part - " + name_attribute + " - " +
+          datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
+    return result
 
 
 def load_data_segy_multithread(file_segy):
-    f = segyio.open(file_segy, ignore_geometry=True)
+    print("BEGIN ContinentalSeismic::load_data_segy_multithread - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+
     header_keys = segyio.tracefield.keys
-    trace_headers = pd.DataFrame(index=range(1, f.tracecount + 1), columns=header_keys.keys())
-    number_of_cpus = psutil.cpu_count()
-    step = math.ceil(len(header_keys.items()) / number_of_cpus)
+    header_keys_filter = ['SourceX', 'SourceY', 'LagTimeA', 'DelayRecordingTime', 'CDP']
 
-    interval = f.bin[segyio.BinField.Interval]
+    segy = segyio.open(file_segy, ignore_geometry=True)
+    interval = segy.bin[segyio.BinField.Interval]
+    trace_count = segy.tracecount
+    results = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
+        futures = []
+        for index in range(len(header_keys_filter)):
+            futures.append(executor.submit(
+                load_data_segy_multithread_part,
+                segy=segy,
+                index_attribute=header_keys[header_keys_filter[index]],
+                name_attribute=header_keys_filter[index]
+            ))
+        for future in concurrent.futures.as_completed(futures):
+            results.append(future.result())
 
-    index_attribute_list_groups = []
-    index_trace_list_groups = []
-    index_group = -1
+    trace_headers = pd.DataFrame(index=range(1, trace_count + 1), columns=header_keys.keys(), dtype=int).fillna(0)
+    for index in range(len(results)):
+        name_attribute = header_keys_filter[index]
 
-    index = 0
-    for index_attribute, index_trace in header_keys.items():
-        if index % step == 0:
-            index_group += 1
-            index_attribute_list_groups.append([])
-            index_trace_list_groups.append([])
-
-        index_attribute_list_groups[index_group].append(index_attribute)
-        index_trace_list_groups[index_group].append(index_trace)
-
-        index += 1
-
-    jobs = []
-    results = [None] * (index_group + 1)
-
-    for i in range(index_group + 1):
-        thread = threading.Thread(target=load_data_segy_trace_group, args=(
-            f.attributes, index_trace_list_groups[i], results, i
-        ))
-        jobs.append(thread)
-
-    for j in jobs:
-        j.start()
-
-    for j in jobs:
-        j.join()
-
-    for i in range(index_group + 1):
-        for j in range(len(index_attribute_list_groups[i])):
-            index_trace_header = index_attribute_list_groups[i][j]
-            trace_headers[index_trace_header] = results[i][j]
-
-    f.close()
+        trace_headers[name_attribute] = results[index]
+    print("END ContinentalSeismic::load_data_segy_multithread - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
     return interval, trace_headers
 
 
 def process(file_segy, isAttribute, attributeName, colorMap, pathProject, nameFileHdf5, guidId):
-    print("***process*****!")
-    result_process = False
+    print("BEGIN ContinentalSeismic::process - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
     # copia o segy original para pasta do projeto com o novo ID
     file_hdf5 = pathProject + '\\' + nameFileHdf5
@@ -227,34 +211,27 @@ def process(file_segy, isAttribute, attributeName, colorMap, pathProject, nameFi
     shutil.copy(file_segy, path_new_segy)
 
     # Le o arquivo segy e salva o HDF5
-    interval, result_data = load_data_segy_multithread(file_segy)
+    interval, trace_sample_count, result_data = load_data_segy(file_segy)
 
     if os.path.isfile(file_hdf5):
-        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, result_data)
+        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, trace_sample_count, result_data)
     else:
         createHdf5(file_hdf5)
-        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, result_data)
+        updateHdf5(file_hdf5, isAttribute, attributeName, colorMap, segy_name_project, interval, trace_sample_count, result_data)
 
-    result_process = True
+    print("END ContinentalSeismic::process - " + datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
 
-    return result_process
+    return True
 
 
 def main():
-    '''print("***INICIANDO O PROCESSO*****!")
-    print("***INICIANDO O PROCESSO*****!")
-
-    file_segy = 'D:/Arquivos/SyntheticSeismicForStratBR/output_lithology.sgy'
+    '''file_segy = 'D:/Arquivos/SyntheticSeismicForStratBR/output_lithology.sgy'
     isAttribute = False
     attributeName = u"Litologia"
-    pathProject = u"D:/Arquivos/Sapinhoa_100k/Sapinhoa_100k/Sapinhoa_100k_continentalcarbonate"
+    pathProject = u"D:/Arquivos/SyntheticSeismicForStratBR"
     nameFileHdf5 = u"continental_seismic.hdf5"
     guidId = 'ddece425-e5d4-4a2d-a798-1899f48af13e'
-    process(file_segy, isAttribute, attributeName, "", pathProject, nameFileHdf5, guidId)
-
-    # print(result)
-    print("***PROCESSO FINALIZADO*****!")
-    print("***PROCESSO FINALIZADO*****!")'''
+    process(file_segy, isAttribute, attributeName, "", pathProject, nameFileHdf5, guidId)'''
 
 
 if __name__ == "__main__":
